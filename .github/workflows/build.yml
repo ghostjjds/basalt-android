@@ -27,18 +27,21 @@ jobs:
       - name: Build
         run: make -C native MODE=release ARM_ENGINE=744 ARM_FULL=1 -j4
 
-      - name: Gate 16 KB no ELF
+      - name: Gate ELF (arm64, 16 KB, marker de engine)
         run: |
-          R=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
-          SO=native/libbasalt-744-full.so
-          test -f "$SO" || { echo "artifact nao gerado"; ls -la native/*.so || true; exit 1; }
-          $R -h "$SO" | grep -q AArch64 || { echo "nao e arm64"; exit 1; }
-          $R -lW "$SO" | awk '/LOAD/{print $NF}' | sort -u | tee /tmp/al
+          B=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
+          SO=$(ls -1 native/libbasalt-744*.so native/*.so 2>/dev/null | head -1)
+          test -n "$SO" || { echo "nenhuma .so gerada"; ls -la native/; exit 1; }
+          echo "SO=$SO" >> $GITHUB_ENV
+          $B/llvm-readelf -h "$SO" | grep -q AArch64 || { echo "nao e arm64"; exit 1; }
+          $B/llvm-readelf -lW "$SO" | awk '/LOAD/{print $NF}' | sort -u | tee /tmp/al
           grep -q '^0x4000$' /tmp/al || { echo "ELF fora de 16 KB"; exit 1; }
+          grep -qa 'BASALT_ARM_ENGINE_2.744.1081_cd14337f' "$SO" \
+            || { echo "marker de engine 2.744.1081 ausente"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
           name: libghost-744
-          path: native/libbasalt-744-full.so
+          path: native/libbasalt-744*.so
           if-no-files-found: error
           retention-days: 7
