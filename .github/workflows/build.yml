@@ -1,0 +1,44 @@
+name: build-ghost-lib
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ghost-lib-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: NDK r28c
+        run: |
+          curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r28c-linux.zip
+          unzip -q ndk.zip
+          echo "ANDROID_NDK_HOME=$PWD/android-ndk-r28c" >> $GITHUB_ENV
+
+      - name: Build
+        run: make -C native MODE=release ARM_ENGINE=744 ARM_FULL=1 -j4
+
+      - name: Gate 16 KB no ELF
+        run: |
+          R=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
+          SO=native/libbasalt-744-full.so
+          test -f "$SO" || { echo "artifact nao gerado"; ls -la native/*.so || true; exit 1; }
+          $R -h "$SO" | grep -q AArch64 || { echo "nao e arm64"; exit 1; }
+          $R -lW "$SO" | awk '/LOAD/{print $NF}' | sort -u | tee /tmp/al
+          grep -q '^0x4000$' /tmp/al || { echo "ELF fora de 16 KB"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libghost-744
+          path: native/libbasalt-744-full.so
+          if-no-files-found: error
+          retention-days: 7
